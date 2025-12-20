@@ -7,7 +7,5 @@ import java.util.List;
 
 public interface TopicRepository extends JpaRepository<Topic, Long> {
     List<Topic> findAllByUserId(Long userId);
-
-    // 참여코드 중복 체크
     boolean existsByParticipationCode(String participationCode);
 }

@@ -36,6 +36,7 @@ public class UserController {
         Map<String, Object> result = new HashMap<>();
         result.put("token", "LOCAL_TOKEN");  // JWT 없이 임시 토큰
         result.put("userId", user.getId());
+        result.put("username", user.getUsername()); // ⭐ 추가
 
         return result;
     }
