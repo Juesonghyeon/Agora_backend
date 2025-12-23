@@ -12,19 +12,19 @@ public class Topic {
     private Long id;
 
     @Column(nullable = false)
-    private String title; // 토픽 제목
+    private String title;
 
     @Column(nullable = false)
-    private String type; // "멀티" or "AI"
+    private String type;
 
-    @Column
-    private String scale; // 멀티일 때: "소규모", "중규모", "대규모"
-
-    @Column
-    private String difficulty; // AI일 때: "쉬움", "보통", "어려움"
+    private String scale;
+    private String difficulty;
 
     @Column(name = "participation_code")
     private String participationCode;
+
+    @Column(nullable = false)
+    private String status = "WAITING";
 
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
@@ -33,7 +33,6 @@ public class Topic {
     @Column(name = "created_at", nullable = false, updatable = false)
     private Timestamp createdAt = new Timestamp(System.currentTimeMillis());
 
-    // Getter / Setter
     public Long getId() { return id; }
     public String getTitle() { return title; }
     public void setTitle(String title) { this.title = title; }
@@ -47,5 +46,6 @@ public class Topic {
     public void setParticipationCode(String participationCode) { this.participationCode = participationCode; }
     public User getUser() { return user; }
     public void setUser(User user) { this.user = user; }
-    public Timestamp getCreatedAt() { return createdAt; }
+    public String getStatus() { return status; }
+    public void setStatus(String status) { this.status = status; }
 }

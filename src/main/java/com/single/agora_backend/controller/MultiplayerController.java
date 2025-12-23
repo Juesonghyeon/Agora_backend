@@ -44,6 +44,15 @@ public class MultiplayerController {
     // 플레이어 목록
     @GetMapping("/players")
     public List<MultiplayerPlayer> getPlayers(@RequestParam String gameCode) {
-        return multiplayerService.getPlayers(gameCode); // userId 포함
+        return multiplayerService.getPlayers(gameCode);
+    }
+
+    // 게임 시작 (HOST만)
+    @PostMapping("/start")
+    public void startGame(
+            @RequestParam String gameCode,
+            @RequestParam Long userId
+    ) {
+        multiplayerService.startGame(gameCode, userId);
     }
 }
