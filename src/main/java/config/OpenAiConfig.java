@@ -8,13 +8,13 @@ import org.springframework.web.client.RestTemplate;
 @Configuration
 public class OpenAiConfig {
 
-    @Value("${openai.api.key:}")
+    @Value("${gemini.api.key}")
     private String apiKey;
 
-    @Value("${openai.model}")
+    @Value("${gemini.model:gemini-1.5-flash}")
     private String model;
 
-    @Value("${openai.url}")
+    @Value("${gemini.url}")
     private String url;
 
     @Bean

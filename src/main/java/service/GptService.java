@@ -20,34 +20,37 @@ public class GptService {
     public String ask(List<GptRequest.Message> messages) {
         HttpHeaders headers = new HttpHeaders();
         headers.setContentType(MediaType.APPLICATION_JSON);
-        headers.setBearerAuth(config.getApiKey());
 
-        GptRequest request = GptRequest.of(config.getModel(), messages);
+        // Authorization 헤더는 필요 없고, URL에 key 쿼리 사용
+        String url = config.getUrl() + "?key=" + config.getApiKey();
+
+        GptRequest request = GptRequest.of(messages);
         HttpEntity<GptRequest> entity = new HttpEntity<>(request, headers);
 
         ResponseEntity<GptResponse> response;
-
         try {
             response = restTemplate.exchange(
-                    config.getUrl(),
+                    url,
                     HttpMethod.POST,
                     entity,
                     GptResponse.class
             );
         } catch (Exception e) {
-            throw new RuntimeException("GPT API 호출 실패", e);
+            throw new RuntimeException("Gemini API 호출 실패: " + e.getMessage(), e);
         }
 
         if (response.getBody() == null
-                || response.getBody().getChoices() == null
-                || response.getBody().getChoices().isEmpty()) {
-            throw new RuntimeException("GPT 응답이 비어있음");
+                || response.getBody().getCandidates() == null
+                || response.getBody().getCandidates().isEmpty()) {
+            throw new RuntimeException("Gemini 응답이 비어있음");
         }
 
         return response.getBody()
-                .getChoices()
+                .getCandidates()
                 .get(0)
-                .getMessage()
-                .getContent();
+                .getContent()
+                .getParts()
+                .get(0)
+                .getText();
     }
 }

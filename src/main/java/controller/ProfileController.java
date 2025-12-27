@@ -60,7 +60,7 @@ public class ProfileController {
 
     // 아이디 변경
     @PostMapping("/change-username")
-    public ResponseEntity<?> changeUsername(@RequestBody ChangeUsernameReq req) {
+    public ResponseEntity<?> changeUsername(@RequestBody com.single.agora_backend.dto.Profile.ChangeUsernameReq req) {
         try {
             profileService.changeUsername(req.getUserId(), req.getNewUsername());
             return ResponseEntity.ok("OK");
@@ -72,7 +72,7 @@ public class ProfileController {
 
     // 비밀번호 변경
     @PostMapping("/change-password")
-    public ResponseEntity<?> changePassword(@RequestBody ChangePasswordReq req) {
+    public ResponseEntity<?> changePassword(@RequestBody com.single.agora_backend.dto.Profile.ChangePasswordReq req) {
         try {
             profileService.changePassword(req.getUserId(), req.getOldPassword(), req.getNewPassword());
             return ResponseEntity.ok("OK");
@@ -84,7 +84,7 @@ public class ProfileController {
 
     // 이메일 추가 및 인증코드 발송
     @PostMapping("/email/send")
-    public ResponseEntity<?> addEmail(@RequestBody AddEmailReq req) {
+    public ResponseEntity<?> addEmail(@RequestBody com.single.agora_backend.dto.Profile.AddEmailReq req) {
         try {
             profileService.addEmail(req.getUserId(), req.getEmail());
             return ResponseEntity.ok("SEND");
@@ -96,7 +96,7 @@ public class ProfileController {
 
     // 이메일 인증
     @PostMapping("/email/verify")
-    public ResponseEntity<?> verifyEmail(@RequestBody VerifyEmailReq req) {
+    public ResponseEntity<?> verifyEmail(@RequestBody com.single.agora_backend.dto.Profile.VerifyEmailReq req) {
         try {
             boolean result = profileService.verifyEmail(req.getUserId(), req.getCode());
             return ResponseEntity.ok(result ? "VERIFIED" : "FAILED");

@@ -28,7 +28,7 @@ public class Topic {
 
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
-    private User user;
+    private com.single.agora_backend.entity.User user;
 
     @Column(name = "created_at", nullable = false, updatable = false)
     private Timestamp createdAt = new Timestamp(System.currentTimeMillis());
@@ -44,8 +44,8 @@ public class Topic {
     public void setDifficulty(String difficulty) { this.difficulty = difficulty; }
     public String getParticipationCode() { return participationCode; }
     public void setParticipationCode(String participationCode) { this.participationCode = participationCode; }
-    public User getUser() { return user; }
-    public void setUser(User user) { this.user = user; }
+    public com.single.agora_backend.entity.User getUser() { return user; }
+    public void setUser(com.single.agora_backend.entity.User user) { this.user = user; }
     public String getStatus() { return status; }
     public void setStatus(String status) { this.status = status; }
 }

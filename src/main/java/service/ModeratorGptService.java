@@ -10,7 +10,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class ModeratorGptService {
 
-    private final GptService gptService;
+    private final com.single.agora_backend.service.GptService gptService;
 
     public boolean isValidTopic(String topic) {
         String result = gptService.ask(List.of(

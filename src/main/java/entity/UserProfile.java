@@ -15,7 +15,7 @@ public class UserProfile {
 
     @OneToOne(fetch = FetchType.EAGER) // LAZY → EAGER로 변경
     @JoinColumn(name = "user_id", referencedColumnName = "id", unique = true, nullable = false)
-    private User user;
+    private com.single.agora_backend.entity.User user;
 
     private String email;
     private String profileImageUrl;

@@ -10,7 +10,7 @@ import java.util.List;
 @RequiredArgsConstructor
 public class JudgeGptService {
 
-    private final GptService gptService;
+    private final com.single.agora_backend.service.GptService gptService;
 
     public String judge(String topic, List<String> team1, List<String> team2) {
         String prompt = """
