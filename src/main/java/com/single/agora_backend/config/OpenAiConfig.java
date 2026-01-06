@@ -8,6 +8,7 @@ import org.springframework.web.client.RestTemplate;
 @Configuration
 public class OpenAiConfig {
 
+
     @Value("${gemini.api.key}")
     private String apiKey;
 
