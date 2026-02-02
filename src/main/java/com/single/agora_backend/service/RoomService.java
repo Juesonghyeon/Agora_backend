@@ -84,4 +84,18 @@ public class RoomService {
     public void removeParticipants(Long roomId) {
         participantRepository.deleteAllByRoomId(roomId);
     }
+
+    @Transactional
+    public Room getOrCreateRoomByCode(String code, Long topicId, Long hostId) {
+        return roomRepository.findByParticipationCode(code)
+                .orElseGet(() -> {
+                    Room room = new Room();
+                    room.setParticipationCode(code);
+                    room.setTopicId(topicId);   // ⭐ 중요
+                    room.setHostId(hostId);
+                    room.setStatus("WAITING");
+                    room.setCreatedAt(LocalDateTime.now());
+                    return roomRepository.save(room);
+                });
+    }
 }

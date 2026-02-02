@@ -31,12 +31,17 @@ public class RoomController {
     }
 
     // 2) 참여코드로 방 조회
-    @GetMapping("/code/{code}")
-    public ResponseEntity<?> getByCode(@PathVariable String code) {
-        Room room = roomService.getByCode(code);
-        if (room == null) {
-            return ResponseEntity.notFound().build();
-        }
+    @PostMapping("/enter/{code}")
+    public ResponseEntity<?> enterRoom(
+            @PathVariable String code,
+            @RequestBody Map<String, Object> body
+    ) {
+        Long topicId = ((Number) body.get("topicId")).longValue();
+        Long hostId = body.get("hostId") == null
+                ? null
+                : ((Number) body.get("hostId")).longValue();
+
+        Room room = roomService.getOrCreateRoomByCode(code, topicId, hostId);
         return ResponseEntity.ok(room);
     }
 
@@ -56,5 +61,6 @@ public class RoomController {
                         "participants", list
                 )
         );
+
     }
 }

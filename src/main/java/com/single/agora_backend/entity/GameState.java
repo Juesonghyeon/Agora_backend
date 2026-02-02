@@ -13,9 +13,14 @@ import java.util.List;
 public class GameState {
 
     @Id
-    private Long lobbyId;
-    private int timeLeft;
+    private Long lobbyId; // 숫자 ID (PK)
 
+    // 🔥 [추가] 방 입장 코드 (FVCARD1IB3PK 등)
+    // 이 필드가 있어야 코드로 ID를 찾을 수 있습니다.
+    @Column(unique = true)
+    private String participationCode;
+
+    private int timeLeft;
     private String phase;
     private String topic;
 
