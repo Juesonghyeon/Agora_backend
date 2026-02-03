@@ -13,57 +13,67 @@ public class ModeratorGptService {
 
     private final GptService gptService;
 
-    // 1차: 주제 적합성 판단
     public boolean isValidTopic(String topic) {
+        // 프롬프트를 훨씬 관대하게 수정
         String prompt = String.format("""
             주제: "%s"
-            
-            너는 토론 대회의 엄격한 심사위원이다. 아래 기준에 따라 주제를 심사해라.
-            
-            [부적합 기준 - 즉시 거절(X)]
-            1. 증오 발언, 나치, 히틀러, 범죄 미화, 성적 표현, 심한 욕설.
-            2. 토론이 불가능한 단순 사실 (예: "지구는 둥글다", "사과는 과일이다").
-            3. 의미 없는 문자열 (예: "!나", "ㅁㄴㅇㄹ").
-            
-            [적합 기준(O)]
-            1. 찬반 논쟁이 가능한 주제.
-            2. 황당한 주제라도 논리가 성립되면 허용 (예: "민초 vs 반민초").
-            3. vs, :, ~대 형식으로 대결구도를 잡을때 사용된 단어들이 부적절하지 않다면 허용한다.
-            
-            출력 형식: 적합하면 O, 부적합하면 X (설명 없이 딱 한 글자만 출력)
+            이 주제가 토론하기에 괜찮은가? 
+            범죄 조장, 심각한 욕설, 아예 의미 없는 자음 나열이 아니라면 웬만하면 "O"라고 답해라.
+            조금이라도 토론의 여지가 있다면 "O"를 선택해라.
             """, topic);
-
         try {
-            String result = gptService.ask(List.of(
-                    new GptRequest.Message("system", "너는 O 또는 X로만 대답하는 판독기다."),
-                    new GptRequest.Message("user", prompt)
-            ));
-
-            log.info("주제 심사: {} -> {}", topic, result);
-            return result.trim().toUpperCase().contains("O");
+            String res = simpleAsk(prompt);
+            log.info("Topic Validation Result for [{}]: {}", topic, res);
+            // 'X'가 명시적으로 포함된 게 아니면 다 통과시키는 전략
+            return !res.equals("X");
         } catch (Exception e) {
-            log.error("GPT 호출 오류", e);
-            return false;
+            return true; // 에러 나면 그냥 통과시켜줌
         }
     }
 
-    // 2차: 주장 유사도 판단
-    public boolean areClaimsTooSimilar(String topic, String claim1, String claim2) {
+    public boolean validateClaim(String topic, String claim) {
         String prompt = String.format("""
             주제: %s
-            [A팀 주장]: %s
-            [B팀 주장]: %s
-            
-            두 주장이 논리적으로 서로 반대인가? 아니면 둘 다 비슷한 소리를 하거나 주제와 무관한가?
-            
-            비슷하거나 엉뚱하다면: YES
-            명확히 대립된다면: NO
+            발언: %s
+            이 발언이 한국어 문장으로서 의미가 있는가? 
+            "ㅋㅋ", "ㅁㄴㅇㄹ" 같은 단순 나열이 아니라면 "O"라고 답해라.
+            """, topic, claim);
+
+        try {
+            String res = simpleAsk(prompt);
+            return !res.equals("X");
+        } catch (Exception e) { return true; }
+    }
+
+    public boolean areClaimsTooSimilar(String topic, String claim1, String claim2) {
+        // 정말 토론이 안 될 정도로 똑같은 말일 때만 리셋하도록 수정
+        String prompt = String.format("""
+            주제: %s
+            A: %s
+            B: %s
+            두 주장의 내용이 거의 90%% 이상 일치해서 토론이 불가능한가? 
+            내용이 서로 다르면 반드시 "NO"라고 답해라.
             """, topic, claim1, claim2);
 
+        try {
+            String res = simpleAsk(prompt);
+            return res.equals("YES");
+        } catch (Exception e) { return false; }
+    }
+
+    private String simpleAsk(String prompt) {
         String result = gptService.ask(List.of(
-                new GptRequest.Message("system", "너는 논리 대립 판독기다. YES or NO only."),
+                new GptRequest.Message("system", "너는 관대한 판사다. 오직 한 글자(O, X, YES, NO)로만 대답해라."),
                 new GptRequest.Message("user", prompt)
-        ));
-        return result.trim().toUpperCase().contains("YES");
+        )).trim().toUpperCase();
+
+        // GPT가 "대답은 O입니다" 처럼 길게 말할 경우를 대비해 첫 글자만 추출
+        if (result.length() > 0) {
+            if (result.contains("O")) return "O";
+            if (result.contains("X")) return "X";
+            if (result.contains("YES")) return "YES";
+            if (result.contains("NO")) return "NO";
+        }
+        return result;
     }
 }

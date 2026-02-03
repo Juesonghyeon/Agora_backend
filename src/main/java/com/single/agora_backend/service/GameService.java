@@ -9,6 +9,8 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.Map;
 
 @Service
@@ -20,6 +22,7 @@ public class GameService {
     private final ModeratorGptService moderatorService;
     private final JudgeGptService judgeService;
 
+    // ... findIdByCode, getState 등 기존 조회 메서드는 동일 ...
     @Transactional(readOnly = true)
     public Long findIdByCode(String code) {
         return repository.findByParticipationCode(code)
@@ -34,18 +37,18 @@ public class GameService {
     // 주제 제출
     @Transactional
     public boolean submitTopic(Long lobbyId, String topic) {
-        // 1. AI 검증 수행
         if (!moderatorService.isValidTopic(topic)) {
-            broadcast(lobbyId, "ERROR", "주제가 부적절합니다. (혐오, 단순 사실, 무의미 등)");
+            broadcast(lobbyId, "ERROR", "주제가 부적절합니다.");
             return false;
         }
 
         GameState state = getOrCreate(lobbyId);
         state.setTopic(topic);
-        state.setPhase("TEAM1_CLAIM"); // 팀1 차례로 변경
-        state.setTimeLeft(60);         // 시간 60초 설정
+        state.setPhase("TEAM1_CLAIM"); // 1라운드 시작
+        state.setTimeLeft(60);
 
-        // 이전 기록 초기화 (새 주제니까)
+        if (state.getTeam1Claims() == null) state.setTeam1Claims(new ArrayList<>());
+        if (state.getTeam2Claims() == null) state.setTeam2Claims(new ArrayList<>());
         state.getTeam1Claims().clear();
         state.getTeam2Claims().clear();
 
@@ -54,78 +57,91 @@ public class GameService {
         return true;
     }
 
-
-    // 발언 제출
+    // 🔥 [핵심 수정] 발언 제출 및 4단계 흐름 제어
     @Transactional
     public void submitClaim(Long lobbyId, ClaimRequest req) {
         GameState state = getOrCreate(lobbyId);
+        ensureLists(state);
 
-        // 주장 저장
+        // 1. 발언 내용 검증 (쓸모없는 말이면 컷)
+        if (!moderatorService.validateClaim(state.getTopic(), req.getText())) {
+            broadcast(lobbyId, "ERROR", "발언이 주제와 무관하거나 내용이 부족합니다. 다시 입력해주세요.");
+            return; // 저장 안 하고 리턴 (턴 유지)
+        }
+
+        // 2. 팀별 저장 및 페이즈 전환 로직
+        String currentPhase = state.getPhase();
+
         if ("team1".equals(req.getTeam())) {
             state.getTeam1Claims().add(req.getText());
-            state.setPhase("TEAM2_CLAIM"); // 턴 넘김
+
+            if ("TEAM1_CLAIM".equals(currentPhase)) {
+                state.setPhase("TEAM2_CLAIM"); // 1라운드: 팀1 -> 팀2
+            } else if ("TEAM1_REBUTTAL".equals(currentPhase)) {
+                state.setPhase("TEAM2_REBUTTAL"); // 2라운드: 팀1 -> 팀2
+            }
             state.setTimeLeft(60);
-        } else {
+
+        } else { // team2
             state.getTeam2Claims().add(req.getText());
-            // 팀2까지 끝났으므로 판정 혹은 검증 단계로
-            checkLogicAndProceed(state);
+
+            if ("TEAM2_CLAIM".equals(currentPhase)) {
+                // 🔥 1라운드 종료 시점: 유사도 체크 수행
+                if (checkSimilarityAndResetIfNeeded(state)) {
+                    return; // 리셋되었으면 여기서 종료
+                }
+                state.setPhase("TEAM1_REBUTTAL"); // 문제 없으면 2라운드(반박) 시작
+                state.setTimeLeft(60);
+
+            } else if ("TEAM2_REBUTTAL".equals(currentPhase)) {
+                // 🔥 2라운드 종료 시점: 판정 진행
+                processJudgment(state);
+                return; // 판정 함수 내부에서 저장/방송 하므로 리턴
+            }
         }
 
         repository.save(state);
         broadcastState(lobbyId, state);
     }
 
-    /**
-     * [수정됨] 컨트롤러에서 호출 가능한 수동 판정 메서드 (에러 해결)
-     * Controller에서 gameService.judge(lobbyId)를 호출할 때 사용됩니다.
-     */
+    // 유사도 체크 로직
+    private boolean checkSimilarityAndResetIfNeeded(GameState state) {
+        String t1 = getLastClaim(state, true);
+        String t2 = getLastClaim(state, false);
+
+        if (moderatorService.areClaimsTooSimilar(state.getTopic(), t1, t2)) {
+            state.setPhase("TOPIC_SELECT"); // 주제 선정으로 롤백
+            state.setTopic(null);
+            repository.save(state);
+            broadcast(state.getLobbyId(), "ERROR", "양팀의 주장이 너무 비슷하여 토론이 성립되지 않습니다. 주제를 다시 정해주세요.");
+            broadcastState(state.getLobbyId(), state);
+            return true; // 리셋됨
+        }
+        return false; // 통과
+    }
+
+    // 수동 판정 (Controller용)
     @Transactional
     public void judge(Long lobbyId) {
-        GameState state = getOrCreate(lobbyId);
-        String t1 = getLastClaim(state, true);
-        String t2 = getLastClaim(state, false);
-
-        // 주장이 없는 경우 방어 로직
-        if (t1.isEmpty() || t2.isEmpty()) {
-            broadcast(lobbyId, "ERROR", "판정을 진행하려면 양 팀의 주장이 필요합니다.");
-            return;
-        }
-
-        processJudgment(state, t1, t2);
+        processJudgment(getOrCreate(lobbyId));
     }
 
-    // 유사도 체크 및 판정 분기 (자동 흐름)
-    private void checkLogicAndProceed(GameState state) {
-        String t1 = getLastClaim(state, true);
-        String t2 = getLastClaim(state, false);
+    private void processJudgment(GameState state) {
+        String t1Claims = String.join(" -> ", state.getTeam1Claims());
+        String t2Claims = String.join(" -> ", state.getTeam2Claims());
 
-        // 2. 유사도/엉뚱함 체크
-        if (moderatorService.areClaimsTooSimilar(state.getTopic(), t1, t2)) {
-            state.setPhase("TOPIC_SELECT"); // 다시 주제 선정으로
-            state.setTopic(null);
-            broadcast(state.getLobbyId(), "ERROR", "양팀 주장이 너무 비슷하거나 주제와 무관합니다. 주제를 다시 정해주세요.");
-        } else {
-            // 정상이면 판정 진행
-            processJudgment(state, t1, t2);
-        }
-    }
-
-    // 실제 판정 로직 (내부용)
-    private void processJudgment(GameState state, String t1, String t2) {
         state.setPhase("JUDGEMENT");
-        Map<String, Integer> scores = judgeService.scoreDebate(state.getTopic(), t1, t2);
+        broadcastState(state.getLobbyId(), state); // 판정 중 표시
+
+        Map<String, Integer> scores = judgeService.scoreDebate(state.getTopic(), t1Claims, t2Claims);
 
         int s1 = scores.getOrDefault("team1", 0);
         int s2 = scores.getOrDefault("team2", 0);
         String winner = s1 > s2 ? "팀1 승리" : (s2 > s1 ? "팀2 승리" : "무승부");
-
         String resultMsg = String.format("결과: 팀1(%d점) vs 팀2(%d점) -> %s", s1, s2, winner);
 
-        // 상태 저장 (DB 반영이 필요하다면 여기서 save)
         repository.save(state);
-
         broadcast(state.getLobbyId(), "RESULT", resultMsg);
-        broadcastState(state.getLobbyId(), state); // 상태 업데이트 전송
     }
 
     // 헬퍼
@@ -134,12 +150,19 @@ public class GameService {
             GameState s = new GameState();
             s.setLobbyId(lobbyId);
             s.setPhase("TOPIC_SELECT");
+            s.setTeam1Claims(new ArrayList<>());
+            s.setTeam2Claims(new ArrayList<>());
             return repository.save(s);
         });
     }
 
+    private void ensureLists(GameState s) {
+        if (s.getTeam1Claims() == null) s.setTeam1Claims(new ArrayList<>());
+        if (s.getTeam2Claims() == null) s.setTeam2Claims(new ArrayList<>());
+    }
+
     private String getLastClaim(GameState s, boolean isTeam1) {
-        var list = isTeam1 ? s.getTeam1Claims() : s.getTeam2Claims();
+        List<String> list = isTeam1 ? s.getTeam1Claims() : s.getTeam2Claims();
         return (list == null || list.isEmpty()) ? "" : list.get(list.size() - 1);
     }
 
@@ -154,7 +177,8 @@ public class GameService {
     private GameStateResponse toResponse(GameState s) {
         return new GameStateResponse(
                 s.getPhase(), s.getTimeLeft(), s.getTopic(),
-                s.getTeam1Claims(), s.getTeam2Claims()
+                s.getTeam1Claims() != null ? s.getTeam1Claims() : new ArrayList<>(),
+                s.getTeam2Claims() != null ? s.getTeam2Claims() : new ArrayList<>()
         );
     }
 }
