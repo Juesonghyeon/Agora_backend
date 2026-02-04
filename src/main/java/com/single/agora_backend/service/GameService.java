@@ -1,6 +1,6 @@
 package com.single.agora_backend.service;
 
-import com.single.agora_backend.dto.game.ClaimRequest;
+import com.single.agora_backend.dto.game.GameRequests;
 import com.single.agora_backend.dto.game.GameStateResponse;
 import com.single.agora_backend.entity.GameState;
 import com.single.agora_backend.repository.GameStateRepository;
@@ -9,176 +9,233 @@ import org.springframework.messaging.simp.SimpMessagingTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
 
-import java.util.ArrayList;
-import java.util.List;
-import java.util.Map;
+import java.util.*;
 
 @Service
 @RequiredArgsConstructor
 public class GameService {
 
-    private final SimpMessagingTemplate template;
     private final GameStateRepository repository;
-    private final ModeratorGptService moderatorService;
-    private final JudgeGptService judgeService;
+    private final SimpMessagingTemplate template;
+    private final TeamBuildingGptService teamBuildingService;
+    private final JudgeGptService judgeService; // 기존 판정 서비스 사용
 
-    // ... findIdByCode, getState 등 기존 조회 메서드는 동일 ...
+    // 1. 플레이어 입장
+    @Transactional
+    public void joinPlayer(Long lobbyId, GameRequests.JoinRequest req) {
+        GameState state = getOrCreate(lobbyId);
+
+        GameState.PlayerInfo info = new GameState.PlayerInfo();
+        info.setNickname(req.getNickname());
+        state.getPlayers().put(req.getSocketId(), info);
+
+        repository.save(state);
+        broadcastState(lobbyId, state);
+    }
+
+    // 2. 주제 선정 (게임 시작)
+    @Transactional
+    public void startTopic(Long lobbyId, String topic) {
+        GameState state = getOrCreate(lobbyId);
+        state.setTopic(topic);
+        state.setPhase("GATHER_OPINIONS"); // 의견 수렴 단계 시작
+        state.setTimeLeft(120);
+
+        // 초기화
+        state.setTeam1Claims(new ArrayList<>());
+        state.setTeam2Claims(new ArrayList<>());
+        state.getPlayers().values().forEach(p -> {
+            p.setInitialOpinion(null);
+            p.setTeam(null);
+            p.setVoteCount(0);
+        });
+
+        repository.save(state);
+        broadcastState(lobbyId, state);
+    }
+
+    // 3. 의견 제출 및 자동 팀 빌딩
+    @Transactional
+    public void submitOpinion(Long lobbyId, GameRequests.OpinionRequest req) {
+        GameState state = getOrCreate(lobbyId);
+        GameState.PlayerInfo p = state.getPlayers().get(req.getSocketId());
+        if (p != null) p.setInitialOpinion(req.getOpinion());
+
+        repository.save(state);
+
+        // 모두 제출했는지 확인
+        boolean allSubmitted = state.getPlayers().values().stream()
+                .allMatch(info -> info.getInitialOpinion() != null && !info.getInitialOpinion().isEmpty());
+
+        if (allSubmitted && state.getPlayers().size() >= 2) { // 최소 2명
+            processTeamBuilding(state);
+        } else {
+            broadcastState(lobbyId, state);
+        }
+    }
+
+    private void processTeamBuilding(GameState state) {
+        broadcast(state.getLobbyId(), "INFO", "AI가 팀을 편성 중입니다...");
+
+        Map<String, List<String>> teams = teamBuildingService.clusterPlayers(state.getTopic(), state.getPlayers());
+
+        if (teams == null) {
+            // 실패: 주제 재선정으로 롤백
+            state.setPhase("TOPIC_SELECT");
+            state.setTopic(null);
+            broadcast(state.getLobbyId(), "ERROR", "의견이 너무 갈리거나 모호하여 팀을 나눌 수 없습니다. 주제를 다시 정해주세요.");
+        } else {
+            // 성공: 팀 배정 적용
+            teams.get("team1").forEach(id -> state.getPlayers().get(id).setTeam("team1"));
+            teams.get("team2").forEach(id -> state.getPlayers().get(id).setTeam("team2"));
+
+            state.setPhase("VOTE_LEADER");
+            state.setTimeLeft(60);
+        }
+        repository.save(state);
+        broadcastState(state.getLobbyId(), state);
+    }
+
+    // 4. 팀장 투표
+    @Transactional
+    public void voteLeader(Long lobbyId, GameRequests.VoteRequest req) {
+        GameState state = getOrCreate(lobbyId);
+        GameState.PlayerInfo candidate = state.getPlayers().get(req.getCandidateId());
+
+        if (candidate != null) {
+            candidate.setVoteCount(candidate.getVoteCount() + 1);
+        }
+        repository.save(state);
+        broadcastState(lobbyId, state);
+    }
+
+    // 투표 종료 (타이머 끝 or 강제 종료)
+    @Transactional
+    public void endVoting(Long lobbyId) {
+        GameState state = getOrCreate(lobbyId);
+
+        // 팀별 최다 득표자 선정
+        state.setTeam1Leader(pickLeader(state, "team1"));
+        state.setTeam2Leader(pickLeader(state, "team2"));
+
+        state.setPhase("ARGUMENT"); // 첫 번째 토론 단계: 주장
+        state.setTimeLeft(180); // 논의 시간 포함
+
+        repository.save(state);
+        broadcastState(lobbyId, state);
+    }
+
+    private String pickLeader(GameState state, String teamName) {
+        return state.getPlayers().entrySet().stream()
+                .filter(e -> teamName.equals(e.getValue().getTeam()))
+                .max(Comparator.comparingInt(e -> e.getValue().getVoteCount()))
+                .map(Map.Entry::getKey)
+                .orElse(null); // 없으면 null (로직상 없을 수 없음)
+    }
+
+    // 5. 단계별 발언 제출 (주장 -> 근거 -> 반론 -> 변론)
+    @Transactional
+    public void submitTeamAction(Long lobbyId, GameRequests.ActionRequest req) {
+        GameState state = getOrCreate(lobbyId);
+
+        // 팀장 검증
+        boolean isTeam1 = req.getLeaderId().equals(state.getTeam1Leader());
+        boolean isTeam2 = req.getLeaderId().equals(state.getTeam2Leader());
+
+        if (!isTeam1 && !isTeam2) return; // 팀장 아님
+
+        List<String> currentList = isTeam1 ? state.getTeam1Claims() : state.getTeam2Claims();
+
+        // 현재 단계에 맞는 인덱스인지 확인 (중복 제출 방지)
+        int currentTurnIndex = getTurnIndex(state.getPhase());
+        if (currentList.size() > currentTurnIndex) return; // 이미 제출함
+
+        currentList.add(req.getContent());
+
+        // 양 팀 모두 제출했으면 다음 단계로
+        if (state.getTeam1Claims().size() == state.getTeam2Claims().size()) {
+            advancePhase(state);
+        } else {
+            repository.save(state);
+            broadcastState(lobbyId, state); // 대기 상태 전송
+        }
+    }
+
+    private int getTurnIndex(String phase) {
+        return switch (phase) {
+            case "ARGUMENT" -> 0;
+            case "EVIDENCE" -> 1;
+            case "REBUTTAL" -> 2;
+            case "CLOSING" -> 3;
+            default -> -1;
+        };
+    }
+
+    private void advancePhase(GameState state) {
+        switch (state.getPhase()) {
+            case "ARGUMENT" -> { state.setPhase("EVIDENCE"); state.setTimeLeft(180); }
+            case "EVIDENCE" -> { state.setPhase("REBUTTAL"); state.setTimeLeft(180); }
+            case "REBUTTAL" -> { state.setPhase("CLOSING"); state.setTimeLeft(180); }
+            case "CLOSING" -> {
+                processJudgment(state); // 판정 시작
+                return;
+            }
+        }
+        repository.save(state);
+        broadcastState(state.getLobbyId(), state);
+    }
+
+    // 6. 판정 (기존 로직 활용)
+    private void processJudgment(GameState state) {
+        state.setPhase("JUDGEMENT");
+        broadcastState(state.getLobbyId(), state);
+
+        String t1Full = String.join(" -> ", state.getTeam1Claims());
+        String t2Full = String.join(" -> ", state.getTeam2Claims());
+
+        Map<String, Integer> scores = judgeService.scoreDebate(state.getTopic(), t1Full, t2Full);
+        int s1 = scores.getOrDefault("team1", 50);
+        int s2 = scores.getOrDefault("team2", 50);
+
+        String resultMsg = String.format("결과: 팀1 %d점 vs 팀2 %d점", s1, s2);
+        broadcast(state.getLobbyId(), "RESULT", resultMsg);
+
+        repository.save(state);
+    }
+
+    // --- 유틸 ---
     @Transactional(readOnly = true)
     public Long findIdByCode(String code) {
         return repository.findByParticipationCode(code)
                 .map(GameState::getLobbyId)
-                .orElseThrow(() -> new IllegalArgumentException("방을 찾을 수 없습니다: " + code));
+                .orElseThrow(() -> new IllegalArgumentException("Invalid Code"));
     }
 
-    public GameStateResponse getState(Long lobbyId) {
-        return toResponse(getOrCreate(lobbyId));
-    }
-
-    // 주제 제출
-    @Transactional
-    public boolean submitTopic(Long lobbyId, String topic) {
-        if (!moderatorService.isValidTopic(topic)) {
-            broadcast(lobbyId, "ERROR", "주제가 부적절합니다.");
-            return false;
-        }
-
-        GameState state = getOrCreate(lobbyId);
-        state.setTopic(topic);
-        state.setPhase("TEAM1_CLAIM"); // 1라운드 시작
-        state.setTimeLeft(60);
-
-        if (state.getTeam1Claims() == null) state.setTeam1Claims(new ArrayList<>());
-        if (state.getTeam2Claims() == null) state.setTeam2Claims(new ArrayList<>());
-        state.getTeam1Claims().clear();
-        state.getTeam2Claims().clear();
-
-        repository.save(state);
-        broadcastState(lobbyId, state);
-        return true;
-    }
-
-    // 🔥 [핵심 수정] 발언 제출 및 4단계 흐름 제어
-    @Transactional
-    public void submitClaim(Long lobbyId, ClaimRequest req) {
-        GameState state = getOrCreate(lobbyId);
-        ensureLists(state);
-
-        // 1. 발언 내용 검증 (쓸모없는 말이면 컷)
-        if (!moderatorService.validateClaim(state.getTopic(), req.getText())) {
-            broadcast(lobbyId, "ERROR", "발언이 주제와 무관하거나 내용이 부족합니다. 다시 입력해주세요.");
-            return; // 저장 안 하고 리턴 (턴 유지)
-        }
-
-        // 2. 팀별 저장 및 페이즈 전환 로직
-        String currentPhase = state.getPhase();
-
-        if ("team1".equals(req.getTeam())) {
-            state.getTeam1Claims().add(req.getText());
-
-            if ("TEAM1_CLAIM".equals(currentPhase)) {
-                state.setPhase("TEAM2_CLAIM"); // 1라운드: 팀1 -> 팀2
-            } else if ("TEAM1_REBUTTAL".equals(currentPhase)) {
-                state.setPhase("TEAM2_REBUTTAL"); // 2라운드: 팀1 -> 팀2
-            }
-            state.setTimeLeft(60);
-
-        } else { // team2
-            state.getTeam2Claims().add(req.getText());
-
-            if ("TEAM2_CLAIM".equals(currentPhase)) {
-                // 🔥 1라운드 종료 시점: 유사도 체크 수행
-                if (checkSimilarityAndResetIfNeeded(state)) {
-                    return; // 리셋되었으면 여기서 종료
-                }
-                state.setPhase("TEAM1_REBUTTAL"); // 문제 없으면 2라운드(반박) 시작
-                state.setTimeLeft(60);
-
-            } else if ("TEAM2_REBUTTAL".equals(currentPhase)) {
-                // 🔥 2라운드 종료 시점: 판정 진행
-                processJudgment(state);
-                return; // 판정 함수 내부에서 저장/방송 하므로 리턴
-            }
-        }
-
-        repository.save(state);
-        broadcastState(lobbyId, state);
-    }
-
-    // 유사도 체크 로직
-    private boolean checkSimilarityAndResetIfNeeded(GameState state) {
-        String t1 = getLastClaim(state, true);
-        String t2 = getLastClaim(state, false);
-
-        if (moderatorService.areClaimsTooSimilar(state.getTopic(), t1, t2)) {
-            state.setPhase("TOPIC_SELECT"); // 주제 선정으로 롤백
-            state.setTopic(null);
-            repository.save(state);
-            broadcast(state.getLobbyId(), "ERROR", "양팀의 주장이 너무 비슷하여 토론이 성립되지 않습니다. 주제를 다시 정해주세요.");
-            broadcastState(state.getLobbyId(), state);
-            return true; // 리셋됨
-        }
-        return false; // 통과
-    }
-
-    // 수동 판정 (Controller용)
-    @Transactional
-    public void judge(Long lobbyId) {
-        processJudgment(getOrCreate(lobbyId));
-    }
-
-    private void processJudgment(GameState state) {
-        String t1Claims = String.join(" -> ", state.getTeam1Claims());
-        String t2Claims = String.join(" -> ", state.getTeam2Claims());
-
-        state.setPhase("JUDGEMENT");
-        broadcastState(state.getLobbyId(), state); // 판정 중 표시
-
-        Map<String, Integer> scores = judgeService.scoreDebate(state.getTopic(), t1Claims, t2Claims);
-
-        int s1 = scores.getOrDefault("team1", 0);
-        int s2 = scores.getOrDefault("team2", 0);
-        String winner = s1 > s2 ? "팀1 승리" : (s2 > s1 ? "팀2 승리" : "무승부");
-        String resultMsg = String.format("결과: 팀1(%d점) vs 팀2(%d점) -> %s", s1, s2, winner);
-
-        repository.save(state);
-        broadcast(state.getLobbyId(), "RESULT", resultMsg);
-    }
-
-    // 헬퍼
     private GameState getOrCreate(Long lobbyId) {
         return repository.findById(lobbyId).orElseGet(() -> {
             GameState s = new GameState();
             s.setLobbyId(lobbyId);
             s.setPhase("TOPIC_SELECT");
-            s.setTeam1Claims(new ArrayList<>());
-            s.setTeam2Claims(new ArrayList<>());
             return repository.save(s);
         });
     }
 
-    private void ensureLists(GameState s) {
-        if (s.getTeam1Claims() == null) s.setTeam1Claims(new ArrayList<>());
-        if (s.getTeam2Claims() == null) s.setTeam2Claims(new ArrayList<>());
-    }
-
-    private String getLastClaim(GameState s, boolean isTeam1) {
-        List<String> list = isTeam1 ? s.getTeam1Claims() : s.getTeam2Claims();
-        return (list == null || list.isEmpty()) ? "" : list.get(list.size() - 1);
-    }
-
-    private void broadcastState(Long lobbyId, GameState state) {
-        template.convertAndSend("/topic/game/" + lobbyId, toResponse(state));
+    private void broadcastState(Long lobbyId, GameState s) {
+        GameStateResponse res = GameStateResponse.builder()
+                .lobbyId(s.getLobbyId())
+                .phase(s.getPhase())
+                .timeLeft(s.getTimeLeft())
+                .topic(s.getTopic())
+                .players(s.getPlayers())
+                .team1Leader(s.getTeam1Leader())
+                .team2Leader(s.getTeam2Leader())
+                .team1Claims(s.getTeam1Claims())
+                .team2Claims(s.getTeam2Claims())
+                .build();
+        template.convertAndSend("/topic/game/" + lobbyId, res);
     }
 
     private void broadcast(Long lobbyId, String type, String msg) {
         template.convertAndSend("/topic/game/" + lobbyId, Map.of("type", type, "message", msg));
-    }
-
-    private GameStateResponse toResponse(GameState s) {
-        return new GameStateResponse(
-                s.getPhase(), s.getTimeLeft(), s.getTopic(),
-                s.getTeam1Claims() != null ? s.getTeam1Claims() : new ArrayList<>(),
-                s.getTeam2Claims() != null ? s.getTeam2Claims() : new ArrayList<>()
-        );
     }
 }
