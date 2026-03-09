@@ -1,34 +1,56 @@
 package com.single.agora_backend.controller;
 
-import com.single.agora_backend.entity.Topic;
-import com.single.agora_backend.repository.TopicRepository;
+import com.single.agora_backend.dto.gpt.AiChatRequest;
+import com.single.agora_backend.service.AiDiscussionService;
+import com.single.agora_backend.service.ModeratorGptService;
+import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
-import java.util.HashMap;
 import java.util.Map;
 
 @RestController
 @RequestMapping("/api/ai")
+@RequiredArgsConstructor
 public class AiDiscussionController {
 
-    private final TopicRepository topicRepository;
+    private final AiDiscussionService aiDiscussionService;
+    private final ModeratorGptService moderatorGptService;
 
-    public AiDiscussionController(TopicRepository topicRepository) {
-        this.topicRepository = topicRepository;
+    // 1. 주제 검증 API
+    @PostMapping("/validate-topic")
+    public Map<String, Object> validateTopic(@RequestBody Map<String, String> body) {
+        String topic = body.get("topic");
+        boolean isValid = moderatorGptService.isValidTopic(topic);
+        return Map.of("isValid", isValid);
     }
 
-    // 🔥 AI 토론 입장 API
-    @PostMapping("/enter/{topicId}")
-    public Map<String, Object> enterAiDiscussion(@PathVariable Long topicId) {
+    // 2. 토론 단계별 채팅 API
+    @PostMapping("/chat")
+    public Map<String, String> chat(@RequestBody AiChatRequest request) {
+        // 발언 유효성 체크 (선택 사항: moderatorGptService.validateClaim 사용 가능)
+        String content = aiDiscussionService.getAiResponse(
+                request.getStage(),
+                request.getTopicTitle(),
+                request.getDifficulty(),
+                request.getHistory()
+        );
+        return Map.of("content", content);
+    }
 
-        Topic topic = topicRepository.findById(topicId)
-                .orElseThrow(() -> new RuntimeException("토픽 없음"));
+    // 3. 최종 판정 API
+    @PostMapping("/judge")
+    public Map<String, String> judge(@RequestBody AiChatRequest request) {
+        String content = aiDiscussionService.judgeDebate(
+                request.getTopicTitle(),
+                request.getHistory()
+        );
+        return Map.of("content", content);
+    }
 
-        Map<String, Object> result = new HashMap<>();
-        result.put("type", "success");
-        result.put("topicId", topic.getId());
-        result.put("title", topic.getTitle());
-
-        return result;
+    @DeleteMapping("/delete-topic")
+    public ResponseEntity<Void> deleteAiTopic(@RequestParam String title) {
+        aiDiscussionService.deleteTopicByTitle(title);
+        return ResponseEntity.ok().build();
     }
 }

@@ -3,8 +3,9 @@ package com.single.agora_backend.dto.Profile;
 import lombok.Getter;
 import lombok.Setter;
 
-@Getter @Setter
-public class ChangeUsernameReq {
+@Getter
+@Setter
+public class EmailRequest {
     private Long userId;
-    private String newUsername;
+    private String email;
 }

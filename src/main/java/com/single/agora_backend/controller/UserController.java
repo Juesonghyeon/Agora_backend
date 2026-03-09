@@ -22,21 +22,24 @@ public class UserController {
     // 로그인
     @PostMapping("/login")
     public Map<String, Object> login(@RequestBody AuthRequest req) {
+        // 디버깅 로그 추가
+        System.out.println("로그인 시도 아이디: " + req.getUsername());
+        System.out.println("로그인 시도 비번: " + req.getPassword());
 
         boolean success = userService.login(req.getUsername(), req.getPassword());
+
         if (!success) {
+            // 여기서 에러가 난다면 DB의 암호화된 비번과 입력한 비번이 안 맞는 것입니다.
             throw new RuntimeException("로그인 실패: 아이디 또는 비밀번호가 올바르지 않습니다.");
         }
 
-        // userId 조회
         User user = userService.findByUsername(req.getUsername())
                 .orElseThrow(() -> new RuntimeException("사용자 조회 실패"));
 
-        // 프론트가 필요로 하는 정확한 응답 형태
         Map<String, Object> result = new HashMap<>();
-        result.put("token", "LOCAL_TOKEN");  // JWT 없이 임시 토큰
+        result.put("token", "LOCAL_TOKEN");
         result.put("userId", user.getId());
-        result.put("username", user.getUsername()); // ⭐ 추가
+        result.put("username", user.getUsername());
 
         return result;
     }

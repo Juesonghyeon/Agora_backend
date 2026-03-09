@@ -36,5 +36,11 @@ public class GameRoomController {
                 "roomId", roomId,
                 "participants", participants
         ));
+
+    }
+    @MessageMapping("/lobby/chat")
+    public void lobbyChat(Map<String, String> msg) {
+        // msg: { "sender": "nickname", "content": "hello", "profileImageUrl": "..." }
+        template.convertAndSend("/topic/lobby/chat", msg);
     }
 }
