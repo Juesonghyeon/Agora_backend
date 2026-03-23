@@ -2,6 +2,7 @@
 package com.single.agora_backend.repository;
 
 import com.single.agora_backend.entity.Friendship;
+import com.single.agora_backend.entity.User;
 import org.springframework.data.jpa.repository.JpaRepository;
 import org.springframework.data.jpa.repository.Query;
 import org.springframework.data.repository.query.Param;
@@ -18,4 +19,6 @@ public interface FriendshipRepository extends JpaRepository<Friendship, Long> {
 
     @Query("SELECT f FROM Friendship f WHERE (f.requester.id = :userId AND f.receiver.id = :targetId) OR (f.requester.id = :targetId AND f.receiver.id = :userId)")
     Optional<Friendship> findRelation(@Param("userId") Long userId, @Param("targetId") Long targetId);
+
+    void deleteByRequesterOrReceiver(User requester, User receiver);
 }

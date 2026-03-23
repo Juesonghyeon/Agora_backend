@@ -28,4 +28,10 @@ public class GameRequests {
         private String content;  // 발언 내용
         private String team;     // [추가] "team1" or "team2" (슈퍼 유저 식별용)
     }
+
+    @Getter
+    public static class TopicRequest {
+        private String socketId; // 호스트 검증용 추가
+        private String title;
+    }
 }

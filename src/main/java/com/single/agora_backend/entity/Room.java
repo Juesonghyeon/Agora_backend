@@ -3,7 +3,6 @@ package com.single.agora_backend.entity;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
-
 import java.time.LocalDateTime;
 
 @Getter
@@ -17,7 +16,8 @@ public class Room {
     @Column(name="topic_id", nullable=false)
     private Long topicId;
 
-    @Column(name="participation_code", nullable=false, unique=true)
+    // ⭐ 길이를 255로 확장하여 [object Object] 같은 비정상 문자열이 들어와도 DB 에러가 나지 않게 합니다.
+    @Column(name="participation_code", nullable=false, unique=true, length=255)
     private String participationCode;
 
     @Column(name="host_id")
@@ -37,7 +37,4 @@ public class Room {
 
     @Column(name="ended_at")
     private LocalDateTime endedAt;
-
-    // getters / setters
-    // (생략 가능: Lombok 사용 시 @Data로 대체)
 }

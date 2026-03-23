@@ -10,12 +10,14 @@ import com.single.agora_backend.repository.UserRepository;
 import lombok.RequiredArgsConstructor;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
+import org.springframework.web.bind.annotation.CrossOrigin;
 
 import java.security.SecureRandom;
 import java.util.List;
 
 @Service
 @RequiredArgsConstructor // 생성자 주입 자동화
+@CrossOrigin(origins = "http://localhost:5173")
 public class TopicService {
 
     private final TopicRepository topicRepository;

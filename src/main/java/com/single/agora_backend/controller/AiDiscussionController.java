@@ -19,10 +19,11 @@ public class AiDiscussionController {
 
     // 1. 주제 검증 API
     @PostMapping("/validate-topic")
-    public Map<String, Object> validateTopic(@RequestBody Map<String, String> body) {
-        String topic = body.get("topic");
-        boolean isValid = moderatorGptService.isValidTopic(topic);
-        return Map.of("isValid", isValid);
+    public ResponseEntity<?> validateTopic(@RequestBody Map<String, String> request) {
+        String topic = request.get("topic");
+        boolean isValid = aiDiscussionService.validateTopic(topic);
+
+        return ResponseEntity.ok(Map.of("isValid", isValid));
     }
 
     // 2. 토론 단계별 채팅 API

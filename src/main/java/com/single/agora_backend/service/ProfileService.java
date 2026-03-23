@@ -24,6 +24,7 @@ public class ProfileService {
     private final UserProfileRepository profileRepository;
     private final FriendshipRepository friendshipRepository;
     private final BCryptPasswordEncoder passwordEncoder;
+    private final DirectMessageRepository directMessageRepository;
 
     // [수정됨] 파일명을 깔끔하게 하나로 고정했습니다. 이 경로에 원하시는 기본 이미지를 위치시켜주세요.
     private final String DEFAULT_IMAGE = "/uploads/profiles/default.jpg";
@@ -128,13 +129,33 @@ public class ProfileService {
     }
 
     public void changeUsername(UsernameChangeRequest req) {
-        User user = userRepository.findById(req.getUserId()).orElseThrow();
-        if (!passwordEncoder.matches(req.getPassword(), user.getPassword()))
-            throw new RuntimeException("비밀번호 불일치");
+        // 1. 사용자 조회
+        User user = userRepository.findById(req.getUserId())
+                .orElseThrow(() -> new RuntimeException("사용자를 찾을 수 없습니다."));
 
-        if (userRepository.findByUsername(req.getNewUsername()).isPresent())
-            throw new RuntimeException("이미 사용 중인 아이디입니다.");
+        // 2. 소셜 로그인 유저인지 확인
+        // (만약 닉네임을 이미 바꿨다면 prefix가 없을 수 있으므로,
+        // DB의 username이나 별도의 소셜 가입 여부 컬럼을 확인하는 것이 좋습니다.)
+        boolean isSocialUser = user.getUsername().startsWith("google_") ||
+                user.getUsername().startsWith("naver_") ||
+                user.getUsername().startsWith("discord_");
 
+        // 3. 일반 유저일 경우에만 비밀번호 검증 수행
+        if (!isSocialUser) {
+            if (req.getPassword() == null || req.getPassword().isBlank()) {
+                throw new RuntimeException("현재 비밀번호를 입력해야 합니다.");
+            }
+            if (!passwordEncoder.matches(req.getPassword(), user.getPassword())) {
+                throw new RuntimeException("비밀번호 불일치");
+            }
+        }
+
+        // 4. 새로운 아이디(닉네임) 중복 체크 (선택 사항이지만 권장)
+        if (userRepository.findByUsername(req.getNewUsername()).isPresent()) {
+            throw new RuntimeException("이미 사용 중인 이름입니다.");
+        }
+
+        // 5. 업데이트
         user.setUsername(req.getNewUsername());
         userRepository.save(user);
     }
@@ -142,13 +163,18 @@ public class ProfileService {
     public List<SearchUserDto> searchUsers(Long myId, String keyword) {
         List<User> users = userRepository.findByUsernameContainingIgnoreCase(keyword);
 
-        return users.stream().map(user -> {
-            UserProfile profile = profileRepository.findByUser_Id(user.getId());
-            String imageUrl = (profile != null && profile.getProfileImageUrl() != null) ? profile.getProfileImageUrl() : DEFAULT_IMAGE;
-            String relation = checkRelation(myId, user.getId());
+        return users.stream()
+                // 본인 제외
+                .filter(user -> !user.getId().equals(myId))
+                // 이미 친구인 상태("ACCEPTED") 제외
+                .filter(user -> !checkRelation(myId, user.getId()).equals("ACCEPTED"))
+                .map(user -> {
+                    UserProfile profile = profileRepository.findByUser_Id(user.getId());
+                    String imageUrl = (profile != null && profile.getProfileImageUrl() != null) ? profile.getProfileImageUrl() : DEFAULT_IMAGE;
+                    String relation = checkRelation(myId, user.getId());
 
-            return new SearchUserDto(user.getId(), user.getUsername(), imageUrl, relation);
-        }).toList();
+                    return new SearchUserDto(user.getId(), user.getUsername(), imageUrl, relation);
+                }).toList();
     }
 
     public String checkRelation(Long myId, Long targetId) {
@@ -199,5 +225,23 @@ public class ProfileService {
         } else {
             throw new RuntimeException("인증번호가 일치하지 않습니다.");
         }
+    }
+
+    public void removeFriend(Long userId, Long targetId) {
+        Friendship friendship = friendshipRepository.findRelation(userId, targetId)
+                .orElseThrow(() -> new RuntimeException("친구 관계가 존재하지 않습니다."));
+        friendshipRepository.delete(friendship);
+    }
+
+    public List<DirectMessage> getMessages(Long user1, Long user2) {
+        return directMessageRepository.findConversation(user1, user2);
+    }
+
+    public void sendMessage(Long senderId, Long receiverId, String content) {
+        DirectMessage msg = new DirectMessage();
+        msg.setSenderId(senderId);
+        msg.setReceiverId(receiverId);
+        msg.setContent(content);
+        directMessageRepository.save(msg);
     }
 }

@@ -1,6 +1,7 @@
 package com.single.agora_backend.controller;
 
 import com.single.agora_backend.dto.Profile.*;
+import com.single.agora_backend.entity.DirectMessage;
 import com.single.agora_backend.service.ProfileService;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.ResponseEntity;
@@ -58,6 +59,7 @@ public class ProfileController {
 
     @PostMapping("/change-username")
     public ResponseEntity<String> changeUsername(@RequestBody UsernameChangeRequest req) {
+        // DTO를 그대로 서비스에 넘깁니다.
         profileService.changeUsername(req);
         return ResponseEntity.ok("아이디 변경 성공");
     }
@@ -77,5 +79,31 @@ public class ProfileController {
     public ResponseEntity<Void> verifyEmail(@RequestBody EmailVerifyRequest req) {
         profileService.verifyEmailCode(req);
         return ResponseEntity.ok().build();
+    }
+
+    @DeleteMapping("/friends/remove")
+    public ResponseEntity<String> removeFriend(@RequestParam Long userId, @RequestParam Long targetId) {
+        try {
+            profileService.removeFriend(userId, targetId);
+            return ResponseEntity.ok("친구 삭제 완료");
+        } catch (Exception e) {
+            return ResponseEntity.badRequest().body(e.getMessage());
+        }
+    }
+
+    @GetMapping("/messages")
+    public ResponseEntity<List<DirectMessage>> getMessages(
+            @RequestParam("user1") Long user1,
+            @RequestParam("user2") Long user2) {
+
+        List<DirectMessage> messages = profileService.getMessages(user1, user2);
+        return ResponseEntity.ok(messages);
+    }
+
+    // 🌟 2. 메시지 전송하기 (DB 저장은 잘 된다고 하셨으니 이미 있을 수도 있지만 확인차!)
+    @PostMapping("/messages/send")
+    public ResponseEntity<String> sendMessage(@RequestBody DmSendRequest req) {
+        profileService.sendMessage(req.getSenderId(), req.getReceiverId(), req.getContent());
+        return ResponseEntity.ok("Message sent");
     }
 }

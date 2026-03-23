@@ -1,5 +1,6 @@
 package com.single.agora_backend.entity;
 
+import com.fasterxml.jackson.annotation.JsonIgnore;
 import jakarta.persistence.*;
 import java.sql.Timestamp;
 
@@ -20,7 +21,7 @@ public class Topic {
     private String scale;
     private String difficulty;
 
-    @Column(name = "participation_code")
+    @Column(name = "participation_code", length = 255)
     private String participationCode;
 
     @Column(nullable = false)
@@ -28,6 +29,7 @@ public class Topic {
 
     @ManyToOne
     @JoinColumn(name = "user_id", nullable = false)
+    @JsonIgnore
     private com.single.agora_backend.entity.User user;
 
     @Column(name = "created_at", nullable = false, updatable = false)

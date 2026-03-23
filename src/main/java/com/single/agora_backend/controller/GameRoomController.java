@@ -1,5 +1,6 @@
 package com.single.agora_backend.controller;
 
+    import com.single.agora_backend.entity.GameParticipant;
     import com.single.agora_backend.entity.Participant;
     import com.single.agora_backend.service.RoomService;
     import org.springframework.messaging.handler.annotation.MessageMapping;
@@ -19,28 +20,30 @@ public class GameRoomController {
         this.roomService = roomService;
     }
 
-    // 클라이언트 -> /app/room/enter
-    @MessageMapping("/room/enter")
-    public void enter(Map<String, Object> msg) {
-        // msg: { "roomId":123, "userId":12, "nickname":"철수" }
-        Long roomId = ((Number)msg.get("roomId")).longValue();
-        Long userId = msg.get("userId")==null?null:((Number)msg.get("userId")).longValue();
-        String nickname = (String) msg.getOrDefault("nickname", "guest");
-
-        Participant p = roomService.joinRoom(roomId, userId, nickname);
-        List<Participant> participants = roomService.listParticipants(roomId);
-
-        // room 상태 브로드캐스트
-        template.convertAndSend("/topic/room/" + roomId + "/state", Map.of(
-                "type", "ROOM_STATE",
-                "roomId", roomId,
-                "participants", participants
-        ));
-
-    }
     @MessageMapping("/lobby/chat")
     public void lobbyChat(Map<String, String> msg) {
         // msg: { "sender": "nickname", "content": "hello", "profileImageUrl": "..." }
         template.convertAndSend("/topic/lobby/chat", msg);
+    }
+
+    @MessageMapping("/room/enter")
+    public void enter(Map<String, Object> msg) {
+        // 1. 데이터 파싱 (여기서 gameCode를 받아와야 합니다. 프론트에서 보내줘야 함)
+        String gameCode = (String) msg.get("gameCode");
+        Long userId = ((Number)msg.get("userId")).longValue();
+        String role = (String) msg.getOrDefault("role", "PARTICIPANT");
+
+        // 2. 중요: 사진이 포함된 새로운 테이블에 저장 (User 객체는 서비스 내부에서 조회하도록 로직 보완 필요)
+        // 지금은 간단히 하기 위해 기존 로직을 수정합니다.
+        // (서비스에 joinGame(gameCode, userId, role) 형태의 오버로딩 메서드를 만드시는 걸 추천합니다)
+
+        // 3. 사진이 포함된 리스트 가져오기
+        List<GameParticipant> participants = roomService.listGameParticipants(gameCode);
+
+        // 4. 전송 (주소도 gameCode 기반으로 하시는게 관리하기 편합니다)
+        template.convertAndSend("/topic/room/" + gameCode + "/state", Map.of(
+                "type", "ROOM_STATE",
+                "participants", participants
+        ));
     }
 }

@@ -1,0 +1,45 @@
+spring:
+  security:
+    oauth2:
+      client:
+        registration:
+          google:
+            client-id: 336661560792-bvjfp7o4e59vcrf3kcq5mpsamg184ook.apps.googleusercontent.com
+            client-secret: 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
+            scope: profile, email
+          naver:
+            client-id: CsuCTi8DrrXmmsAQqTyi
+            client-secret: yqh8QoH0gF
+            client-name: Naver
+            authorization-grant-type: authorization_code
+            authorization-uri: https://nid.naver.com/oauth2.0/authorize
+            redirect-uri: "{baseUrl}/{action}/oauth2/code/{registrationId}"
+          discord:
+            client-id: 1481942448824520916
+            client-secret: O43-52RMrZBUR9_TqBQhp55jeSBmp1dz
+            scope: identify, email
+            client-name: Discord
+            authorization-grant-type: authorization_code
+            authorization-uri: https://discord.com/api/oauth2/authorize
+            redirect-uri: "{baseUrl}/{action}/oauth2/code/{registrationId}"
+        provider:
+          naver:
+            authorization-uri: https://nid.naver.com/oauth2.0/authorize
+            token-uri: https://nid.naver.com/oauth2.0/token
+            user-info-uri: https://openapi.naver.com/v1/nid/me
+            user-name-attribute: response
+          discord:
+            authorization-uri: https://discord.com/api/oauth2/authorize
+            token-uri: https://discord.com/api/oauth2/token
+            user-info-uri: https://discord.com/api/users/@me
+            user-name-attribute: id
+
+  # 메일 발송 설정 (Gmail 앱 비밀번호 사용 권장)
+  mail:
+    host: smtp.gmail.com
+    port: 587
+    username: jusonghyeon3@gmail.com
+    password: cviu fpzr najp vuzz
+    properties:
+      mail.smtp.auth: true
+      mail.smtp.starttls.enable: true

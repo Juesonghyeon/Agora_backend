@@ -5,4 +5,6 @@ import org.springframework.data.jpa.repository.JpaRepository;
 
 public interface UserProfileRepository extends JpaRepository<UserProfile, Long> {
     UserProfile findByUser_Id(Long userId);
+    UserProfile findByEmail(String email);
+    boolean existsByEmail(String email); // 중복 체크용
 }

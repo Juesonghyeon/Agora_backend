@@ -1,5 +1,6 @@
 package com.single.agora_backend.entity;
 
+import com.fasterxml.jackson.annotation.JsonProperty;
 import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
@@ -51,5 +52,8 @@ public class GameState {
         private String initialOpinion; // 초기에 적은 의견 (팀 빌딩용)
         private String team;           // "team1" or "team2"
         private int voteCount;         // 팀장 투표 받은 수
+
+        @JsonProperty("isHost")
+        private boolean isHost;
     }
 }

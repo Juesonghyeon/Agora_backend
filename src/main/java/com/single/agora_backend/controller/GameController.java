@@ -3,7 +3,9 @@ package com.single.agora_backend.controller;
 import com.single.agora_backend.dto.game.GameRequests;
 import com.single.agora_backend.dto.game.GameStateResponse;
 import com.single.agora_backend.service.GameService;
+import com.single.agora_backend.service.JudgeGptService;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.*;
 
 import java.util.Collections;
@@ -12,9 +14,11 @@ import java.util.Map;
 @RestController
 @RequestMapping("/api/game")
 @RequiredArgsConstructor
+@CrossOrigin(origins = "http://localhost:5173", allowCredentials = "true")
 public class GameController {
 
     private final GameService gameService;
+    private final JudgeGptService judgeGptService;
 
     // 1. 코드 -> ID 조회 (입장 전)
     @GetMapping("/info/{code}")
@@ -62,5 +66,13 @@ public class GameController {
     @PostMapping("/{lobbyId}/action")
     public void submitAction(@PathVariable Long lobbyId, @RequestBody GameRequests.ActionRequest req) {
         gameService.submitTeamAction(lobbyId, req);
+    }
+
+    @PostMapping("/validate-topic")
+    public ResponseEntity<?> validateTopic(@RequestBody Map<String, String> request) {
+        String topic = request.get("topic");
+        boolean isValid = judgeGptService.validateTopic(topic);
+
+        return ResponseEntity.ok(Map.of("isValid", isValid));
     }
 }
