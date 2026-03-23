@@ -5,6 +5,21 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+application.yml
+application-properties
+.env
+*.properties
+
+# 빌드 결과물 및 IDE 설정
+/build/
+/out/
+.idea/
+*.class
+/bin/
+
+# OS 관련
+.DS_Store
+
 ### STS ###
 .apt_generated
 .classpath
